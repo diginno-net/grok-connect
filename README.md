@@ -24,6 +24,22 @@ All working. Use: grok -m <model>  ·  or /model inside the TUI
 
 ---
 
+## `/connect` inside the TUI
+
+![The /connect slash command listing every provider, its auth type and whether it is attached](docs/connect-provider-table.png)
+
+Type `/connect` and the agent runs `grok-connect list` for you, reads the table back, and asks
+which provider to attach — it never picks for you. *(The skill ships in English, Vietnamese and
+Chinese; the screenshot shows the Vietnamese build.)*
+
+![The agent proposing a grok-connect add command with the full model list, and warning that only a successful HTTP status proves a model works](docs/connect-add-and-verify.png)
+
+Note what it says at the bottom: **only a successful HTTP status counts as proof.** Appearing in
+the registry or in `/model` does not mean the endpoint answers. New models show up from the next
+grok session on.
+
+---
+
 ## Why this exists
 
 Grok Build is already a multi-provider client — its sampler speaks three protocols

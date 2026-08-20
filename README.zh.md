@@ -23,6 +23,20 @@ All working. Use: grok -m <model>  ·  or /model inside the TUI
 
 ---
 
+## 在 TUI 里直接用 `/connect`
+
+![/connect 命令列出所有供应商、认证方式，以及是否已挂载](docs/connect-provider-table.png)
+
+输入 `/connect`，agent 会替你跑 `grok-connect list`，把表格念给你听，然后问要挂哪个供应商——
+它不会替你做决定。*（skill 提供英文、越南文、中文三版；截图是越南文版。）*
+
+![agent 给出完整模型列表的 grok-connect add 命令，并提示只有 HTTP 成功才算真的能用](docs/connect-add-and-verify.png)
+
+注意最后那句：**只有 HTTP 返回成功才算证据。** 出现在 registry 里或 `/model` 列表里，都不代表
+端点真的会响应。新模型从下一个 grok 会话开始出现。
+
+---
+
 ## 为什么需要它
 
 Grok Build 本来就是个多供应商客户端——它的 sampler 会说三种协议（`chat_completions`、

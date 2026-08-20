@@ -24,6 +24,20 @@ All working. Use: grok -m <model>  ·  or /model inside the TUI
 
 ---
 
+## `/connect` ngay trong TUI
+
+![Lệnh /connect liệt kê mọi provider, kiểu xác thực và đã cắm hay chưa](docs/connect-provider-table.png)
+
+Gõ `/connect`, agent tự chạy `grok-connect list`, đọc bảng đó cho bạn nghe rồi hỏi muốn cắm
+provider nào — nó không tự chọn thay bạn. *(Skill có bản Anh, Việt, Trung; ảnh chụp bản tiếng Việt.)*
+
+![Agent đề xuất lệnh grok-connect add với đầy đủ model, kèm cảnh báo chỉ HTTP thành công mới tính là chạy được](docs/connect-add-and-verify.png)
+
+Để ý dòng cuối: **chỉ HTTP trả về thành công mới tính là chạy được.** Có mặt trong registry hay
+trong `/model` không chứng minh endpoint hoạt động. Model mới xuất hiện từ session grok kế tiếp.
+
+---
+
 ## Vì sao có cái này
 
 Grok Build vốn đã là client đa nhà cung cấp — bộ sampler của nó nói được 3 protocol
