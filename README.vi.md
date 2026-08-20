@@ -186,6 +186,15 @@ trước rồi mới fallback HTTP/1.1.
 
 </details>
 
+## Cộng đồng
+
+Có câu hỏi, cắm provider mãi không lên, hay dựng được setup hay ho — mang qua
+**[OpenCode Vietnam](https://www.facebook.com/groups/opencode.io.vn)** — nhóm Facebook của anh em
+ghép mấy con AI coding CLI (opencode, Grok Build, Codex, Claude Code) vào việc thật.
+
+Báo lỗi và pull request thì để ở issue tracker; nhóm dành cho mấy chuyện lộn xộn kiểu
+"có ai nối được X với Y chưa".
+
 ## Giấy phép
 
 MIT. Không liên kết với xAI, OpenAI, Z.ai, DeepSeek hay opencode.

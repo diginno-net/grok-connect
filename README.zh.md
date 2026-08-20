@@ -179,6 +179,14 @@ shim，不用手动跑。每个会话会多一次上游请求：grok 先试 HTTP
 
 </details>
 
+## 社区
+
+有疑问、某个供应商怎么都挂不上、或者折腾出了值得分享的配置——都欢迎带到
+**[OpenCode Vietnam](https://www.facebook.com/groups/opencode.io.vn)**，一个把 AI 编程 CLI（opencode、Grok Build、Codex、
+Claude Code）接进真实工作流的 Facebook 群组。主要讲越南语，英文也没问题。
+
+Bug 和 PR 请走 issue tracker；群组更适合那种"有人成功把 X 接到 Y 了吗"的话题。
+
 ## 许可证
 
 MIT。与 xAI、OpenAI、智谱、DeepSeek、opencode 均无隶属关系。

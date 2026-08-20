@@ -190,6 +190,16 @@ upstream request per session: grok tries HTTP/2 first and falls back to HTTP/1.1
 
 </details>
 
+## Community
+
+Questions, a provider that won't attach, or a setup worth sharing — bring it to
+**[OpenCode Vietnam](https://www.facebook.com/groups/opencode.io.vn)** — a Facebook group for
+people wiring AI coding CLIs (opencode, Grok Build, Codex, Claude Code) into real work.
+Vietnamese-first, English welcome.
+
+Bug reports and pull requests go in the issue tracker; the group is for the messier
+"has anyone got X talking to Y" conversations.
+
 ## License
 
 MIT. Not affiliated with xAI, OpenAI, Z.ai, DeepSeek, or opencode.
