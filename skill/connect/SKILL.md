@@ -34,10 +34,10 @@ helper, which reads opencode's key store, Codex's, or environment variables.
 
 # Boundaries to hold
 
-- **Never attach ChatGPT on your own initiative.** `grok-connect add chatgpt` uses a ChatGPT
-  Plus/Pro subscription through `chatgpt.com/backend-api/codex` — **not a public API, against
-  OpenAI's terms, and it can get the account suspended.** Only run it when the user asks
-  directly, and state that risk first.
+- **Never attach ChatGPT on your own initiative.** `grok-connect add chatgpt` routes a ChatGPT
+  Plus/Pro subscription through `chatgpt.com/backend-api/codex`, an internal endpoint with no
+  stability guarantee, and it needs an extra install (`--with-chatgpt`). Only run it when the
+  user asks directly, and say what it is first.
 - If a provider says `unsupported`, give the reason from the table; don't try to work around it.
 - Out of quota / out of balance is an account problem, not a config problem — report it as such.
 - Grok **rewrites `config.toml`** when the model is switched in the TUI, and **strips all

@@ -31,9 +31,9 @@ Codex 的密钥库，或环境变量。
 
 # 必须守住的边界
 
-- **绝不主动挂 ChatGPT。** `grok-connect add chatgpt` 是拿 ChatGPT Plus/Pro 订阅走
-  `chatgpt.com/backend-api/codex`——**那不是公开 API，违反 OpenAI 条款，有封号风险。**
-  只有用户直接要求时才执行，且必须先讲清这个风险。
+- **绝不主动挂 ChatGPT。** `grok-connect add chatgpt` 是把 ChatGPT Plus/Pro 订阅接到
+  `chatgpt.com/backend-api/codex`——内部端点，没有稳定性承诺，而且需要额外安装
+  （`--with-chatgpt`）。只有用户直接要求时才执行，且先说清那是什么。
 - 供应商标记为 `unsupported` 时，照表格给出原因，不要绕路硬上。
 - 配额用尽 / 余额不足是账户问题，不是配置问题——就这么如实报告。
 - 在 TUI 里切换模型时 Grok 会**重写 `config.toml` 并删掉所有注释**。用户动过模型选择器之后，

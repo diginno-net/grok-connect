@@ -115,7 +115,7 @@ def cmd_list():
         status = "attached" if pid in have else (
             "oauth - needs a bridge" if kind == "oauth" else "ready")
         if pid == "openai" and kind == "oauth":
-            status = "attached (chatgpt)" if "chatgpt" in have else "use `add chatgpt` - read the ToS warning"
+            status = "attached (chatgpt)" if "chatgpt" in have else "use `add chatgpt` - unofficial endpoint"
             base = SPECIAL["chatgpt"]["base_url"]
         elif base == "—":
             status = "unsupported (own SDK, no REST base_url)"
@@ -129,7 +129,7 @@ def cmd_list():
     extra = have - set(auth) - {"chatgpt"}
     if extra:
         print("\nAttached but absent from the key store:", ", ".join(sorted(extra)))
-    print("\nChatGPT (Plus/Pro plan): `grok-connect add chatgpt` - read the ToS warning in the README first.")
+    print("\nChatGPT (Plus/Pro plan): `grok-connect add chatgpt` - unofficial endpoint, see the README.")
 
 
 def models_of(pid):
@@ -200,7 +200,7 @@ def cmd_add(pid, wanted):
         import shutil, subprocess
         if not shutil.which("chatgpt-responses-shim"):
             die("`chatgpt-responses-shim` is not on PATH.\n"
-                "It is not installed by default because the ChatGPT path breaks OpenAI's terms.\n"
+                "It is not installed by default: that path uses an internal endpoint that can change.\n"
                 "Install it deliberately: ./install.sh --with-chatgpt")
         acc = subprocess.run(["grok-cred", "chatgpt-account-id"], capture_output=True, text=True).stdout.strip()
         lines.append(

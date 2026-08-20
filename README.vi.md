@@ -58,7 +58,7 @@ và danh mục model, tự lấy khoá, ghi config, **rồi gọi thật vào en
 | `grok-connect` | CLI: `list` · `models` · `add` · `test` · `remove`. Ghi/gỡ các khối config. |
 | `grok-cred` | Credential helper cắm vào `[auth_provider.*]` của grok. Lấy khoá lúc gọi, nên **không secret nào bị ghi vào `config.toml`**. |
 | Skill `/connect` | Chính cái CLI trên, hiện thành slash command trong TUI grok. Có bản Anh, Việt, Trung. |
-| `chatgpt-responses-shim` | *Tuỳ chọn, mặc định không cài.* Nối grok với gói ChatGPT. **Đọc cảnh báo bên dưới trước khi đụng.** |
+| `chatgpt-responses-shim` | *Tuỳ chọn, mặc định không cài.* Nối grok với gói ChatGPT qua một endpoint không chính thức — xem mục ở cuối README. |
 
 ## Cần có
 
@@ -148,20 +148,20 @@ Tách như vậy mới rõ: 402 và 429 là chuyện tài khoản, còn 404 là 
 - **Provider có SDK riêng thì không cắm được** (Google, Anthropic trực tiếp, xAI): models.dev
   không khai base URL REST cho chúng, grok không có gì để gọi.
 
-## Gói ChatGPT — tuỳ chọn, và vi phạm điều khoản OpenAI
+## Gói ChatGPT — tuỳ chọn, endpoint không chính thức
 
 <details>
-<summary><b>Đọc kỹ trước khi mở.</b></summary>
+<summary><b>Mở ra xem cách cài và hai chỗ lệch protocol phải bắc cầu.</b></summary>
 
-Có thể cho grok dùng gói ChatGPT Plus/Pro thay vì API key OpenAI. Nó chạy được — kể cả tool
-calling — nhưng đi qua `chatgpt.com/backend-api/codex`, endpoint dành riêng cho client Codex
-của OpenAI.
+Có thể cho grok dùng gói ChatGPT Plus/Pro thay vì API key OpenAI. Nó chạy được, kể cả tool
+calling, giống cách opencode và mấy CLI khác cho đăng nhập ChatGPT. Đường đi qua
+`chatgpt.com/backend-api/codex`.
 
-> ⚠️ **Việc này vi phạm điều khoản OpenAI và có thể bị khoá tài khoản.** Đó không phải public API.
-> Muốn xài model GPT trong grok cho việc thật thì dùng key OpenAI Platform
-> (`base_url = "https://api.openai.com/v1"`, `api_backend = "responses"`) — đường đó được hỗ trợ
-> chính thức, ổn định và hợp lệ. Phần dưới ghi lại vì các lỗi gặp phải đáng học, không phải vì
-> nó là ý hay.
+> **Đó là endpoint nội bộ, không phải public API.** Không có cam kết ổn định nào: shape của
+> request/response đổi lúc nào cũng được, và shim này sẽ gãy theo. Chuyện dùng từ client bên thứ
+> ba có hợp với thoả thuận giữa bạn và OpenAI hay không là việc bạn tự cân, README này không
+> phán. Chạy production thì key OpenAI Platform (`base_url = "https://api.openai.com/v1"`,
+> `api_backend = "responses"`) mới là đường có tài liệu, có version, có hỗ trợ.
 
 ```sh
 ./install.sh --with-chatgpt

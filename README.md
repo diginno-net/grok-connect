@@ -61,7 +61,7 @@ prove the thing actually works**.
 | `grok-connect` | CLI: `list` · `models` · `add` · `test` · `remove`. Writes/removes the config blocks. |
 | `grok-cred` | Credential helper wired into grok's `[auth_provider.*]`. Resolves keys at call time so **no secret is ever written into `config.toml`**. |
 | `/connect` skill | The CLI, surfaced as a slash command inside the grok TUI. Ships in English, Vietnamese and Chinese. |
-| `chatgpt-responses-shim` | *Optional, not installed by default.* Bridges grok to a ChatGPT subscription. **Read the warning below before touching it.** |
+| `chatgpt-responses-shim` | *Optional, not installed by default.* Bridges grok to a ChatGPT subscription through an unofficial endpoint — see [the section below](#chatgpt-subscription--optional-unofficial-endpoint). |
 
 ## Requirements
 
@@ -151,20 +151,20 @@ That split matters: 402 and 429 are account problems, 404 is your mistake.
 - **Providers with their own SDK can't be attached** (Google, Anthropic direct, xAI): models.dev
   lists no REST base URL for them, so grok has nothing to call.
 
-## ChatGPT subscription — optional, and against OpenAI's terms
+## ChatGPT subscription — optional, unofficial endpoint
 
 <details>
-<summary><b>Read this before expanding.</b></summary>
+<summary><b>Expand for the setup and the two protocol mismatches it works around.</b></summary>
 
-You can point grok at a ChatGPT Plus/Pro subscription instead of an OpenAI API key. It works —
-including tool calling — but it routes through `chatgpt.com/backend-api/codex`, an endpoint
-reserved for OpenAI's own Codex client.
+You can point grok at a ChatGPT Plus/Pro subscription instead of an OpenAI API key. It works,
+tool calling included, the same way opencode and other CLIs offer ChatGPT sign-in. It routes
+through `chatgpt.com/backend-api/codex`.
 
-> ⚠️ **This breaks OpenAI's terms of service and can get your account suspended.** It is not a
-> public API. If you want GPT models in grok for real work, use an OpenAI Platform key
-> (`base_url = "https://api.openai.com/v1"`, `api_backend = "responses"`) — that path is
-> supported, stable, and legitimate. What follows is documented because the failure modes are
-> interesting, not because it is a good idea.
+> **That is an internal endpoint, not a public API.** It carries no stability guarantee: the
+> request or response shape can change without notice and this shim will break when it does.
+> Whether third-party use fits your agreement with OpenAI is your call, not this README's.
+> For production work an OpenAI Platform key (`base_url = "https://api.openai.com/v1"`,
+> `api_backend = "responses"`) is the path that is documented, versioned, and supported.
 
 ```sh
 ./install.sh --with-chatgpt

@@ -57,7 +57,7 @@ Grok Build 本来就是个多供应商客户端——它的 sampler 会说三种
 | `grok-connect` | CLI：`list` · `models` · `add` · `test` · `remove`。负责写入/移除配置块。 |
 | `grok-cred` | 接进 grok `[auth_provider.*]` 的凭据助手。调用时才取密钥，所以**不会有任何 secret 写进 `config.toml`**。 |
 | `/connect` skill | 上面那个 CLI，在 grok TUI 里以斜杠命令出现。提供英文、越南文、中文三版。 |
-| `chatgpt-responses-shim` | *可选，默认不安装。* 把 grok 接到 ChatGPT 订阅上。**动手之前先读下面的警告。** |
+| `chatgpt-responses-shim` | *可选，默认不安装。* 通过一个非官方端点把 grok 接到 ChatGPT 订阅上——见文末对应章节。 |
 
 ## 前置条件
 
@@ -146,18 +146,18 @@ Token 不落盘。挂了 auth provider 的模型是**严格 BYOK：你的 xAI �
 - **有自家 SDK 的供应商挂不上**（Google、Anthropic 直连、xAI）：models.dev 没有为它们记录 REST
   base URL，grok 无从调用。
 
-## ChatGPT 订阅——可选，且违反 OpenAI 条款
+## ChatGPT 订阅——可选，非官方端点
 
 <details>
-<summary><b>展开前请先读完。</b></summary>
+<summary><b>展开查看配置方法，以及它绕开的两处协议差异。</b></summary>
 
-你可以让 grok 用 ChatGPT Plus/Pro 订阅，而不是 OpenAI API key。它确实能跑——包括工具调用——
-但走的是 `chatgpt.com/backend-api/codex`，那是 OpenAI 自家 Codex 客户端专用的端点。
+你可以让 grok 用 ChatGPT Plus/Pro 订阅，而不是 OpenAI API key。它确实能跑，工具调用也没问题，
+和 opencode 等 CLI 提供 ChatGPT 登录是同一套机制。请求走 `chatgpt.com/backend-api/codex`。
 
-> ⚠️ **这违反 OpenAI 服务条款，可能导致账号被封。** 它不是公开 API。如果你要在 grok 里认真用
-> GPT 模型，请用 OpenAI Platform 密钥（`base_url = "https://api.openai.com/v1"`，
-> `api_backend = "responses"`）——那条路受官方支持、稳定、合规。下面记录下来是因为这些故障本身
-> 值得学，而不是因为这么做是个好主意。
+> **那是内部端点，不是公开 API。** 它没有任何稳定性承诺：请求或响应结构随时可能变动，一变
+> 这个 shim 就会失效。第三方使用是否符合你与 OpenAI 之间的约定，由你自己判断，本 README 不下
+> 结论。生产环境请用 OpenAI Platform 密钥（`base_url = "https://api.openai.com/v1"`，
+> `api_backend = "responses"`）——那条路有文档、有版本、有支持。
 
 ```sh
 ./install.sh --with-chatgpt

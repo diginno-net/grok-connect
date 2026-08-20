@@ -32,9 +32,9 @@ của opencode (`~/.local/share/opencode/auth.json`) và Codex (`~/.codex/auth.j
 
 # Ranh giới phải giữ
 
-- **Không tự ý cắm ChatGPT.** `grok-connect add chatgpt` dùng gói ChatGPT Plus/Pro qua endpoint
-  `chatgpt.com/backend-api/codex` — **không phải public API, vi phạm điều khoản OpenAI, rủi ro khoá
-  tài khoản**. Chỉ chạy khi người dùng yêu cầu thẳng, và phải nói rõ rủi ro này trước.
+- **Không tự ý cắm ChatGPT.** `grok-connect add chatgpt` đẩy gói ChatGPT Plus/Pro qua
+  `chatgpt.com/backend-api/codex`, endpoint nội bộ không có cam kết ổn định, và phải cài thêm
+  (`--with-chatgpt`). Chỉ chạy khi người dùng yêu cầu thẳng, và nói rõ đó là gì trước.
 - Provider báo `chưa hỗ trợ` thì nói lý do trong bảng, đừng cố lách.
 - Provider hết quota / hết số dư là chuyện của tài khoản, không phải lỗi cấu hình — báo đúng như vậy.
 - Grok **tự ghi đè `config.toml`** khi đổi model trong TUI và **xoá hết dòng comment**. Sau khi

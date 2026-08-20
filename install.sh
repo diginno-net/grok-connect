@@ -16,9 +16,9 @@ echo "installed: $BIN_DIR/{grok-cred,grok-connect}"
 if [[ $WITH_CHATGPT == 1 ]]; then
   install -m 755 "$here/bin/chatgpt-responses-shim" "$BIN_DIR/chatgpt-responses-shim"
   echo "installed: $BIN_DIR/chatgpt-responses-shim"
-  echo "WARNING: the ChatGPT path uses your ChatGPT subscription through an endpoint"
-  echo "         reserved for OpenAI's own Codex client. It violates OpenAI's terms"
-  echo "         and can get your account suspended. You installed it on purpose."
+  echo "NOTE: the ChatGPT path talks to chatgpt.com/backend-api/codex, an internal"
+  echo "      endpoint with no stability guarantee - it can change without notice"
+  echo "      and this shim will break when it does. See the README."
 fi
 
 # Install the /connect skill into every grok home found (SKILL_LANG=en|vi|zh)
