@@ -1,0 +1,364 @@
+#!/usr/bin/env python3
+"""grok-connect - attach/detach model providers for Grok Build without hand-editing TOML.
+
+Grok has no provider picker: it only has `grok login` (xAI sign-in) and a config file.
+This fills that gap - it reads the models.dev registry and your key store, then writes
+the three config blocks grok needs.
+
+  grok-connect list                    # which providers have keys, which are attached
+  grok-connect models <provider>       # models that provider offers
+  grok-connect add <provider> [model…] # attach (no models = first three)
+  grok-connect test <provider>         # call the real endpoint, check every model
+  grok-connect remove <provider>       # detach
+
+Keys are NOT copied into the config: every provider points at the `grok-cred` helper.
+"""
+import json, os, re, sys
+
+REGISTRY_OPENCODE = os.path.expanduser("~/.cache/opencode/models.json")
+REGISTRY_CACHE = os.path.expanduser("~/.cache/grok-connect/models.json")
+REGISTRY_URL = "https://models.dev/api.json"
+REGISTRY_TTL = 24 * 3600
+OC_AUTH = os.path.expanduser("~/.local/share/opencode/auth.json")
+CONFIG = os.path.join(os.environ.get("GROK_HOME", os.path.expanduser("~/.grok")), "config.toml")
+
+# Providers that need a bridge rather than a direct attach.
+SPECIAL = {
+    "chatgpt": {
+        "base_url": "http://127.0.0.1:8788/v1",
+        "api_backend": "responses",
+        "models": ["gpt-5.6-sol"],
+        "context": 1050000,
+        "note": "via chatgpt-responses-shim; grok-cred starts the shim on demand",
+    }
+}
+
+
+def die(msg, code=1):
+    print(msg, file=sys.stderr)
+    sys.exit(code)
+
+
+def registry():
+    """Provider/model catalogue. Prefers opencode's cache when present, otherwise
+    downloads models.dev into its own cache (24h TTL)."""
+    import time
+    if os.path.exists(REGISTRY_OPENCODE):
+        d = load(REGISTRY_OPENCODE)
+        if d:
+            return d
+    fresh = os.path.exists(REGISTRY_CACHE) and time.time() - os.path.getmtime(REGISTRY_CACHE) < REGISTRY_TTL
+    if not fresh:
+        import urllib.request
+        try:
+            os.makedirs(os.path.dirname(REGISTRY_CACHE), exist_ok=True)
+            req = urllib.request.Request(REGISTRY_URL, headers={"User-Agent": "grok-connect/1.0"})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                data = r.read()
+            json.loads(data)
+            with open(REGISTRY_CACHE, "wb") as f:
+                f.write(data)
+        except Exception as e:
+            if not os.path.exists(REGISTRY_CACHE):
+                die(f"could not fetch registry {REGISTRY_URL}: {e}")
+            print(f"grok-connect: using stale registry cache ({e})", file=sys.stderr)
+    return load(REGISTRY_CACHE)
+
+
+def load(path, default=None):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return default if default is not None else {}
+
+
+def backend_of(entry):
+    """models.dev records which SDK a provider needs; map that to grok's protocol."""
+    npm = entry.get("npm") or ""
+    if "anthropic" in npm:
+        return "messages"
+    return "chat_completions"
+
+
+def key_of(name):
+    """TOML section name: a dot inside a model id would split the table."""
+    return re.sub(r"[^A-Za-z0-9_-]", "_", name)
+
+
+def read_config():
+    try:
+        return open(CONFIG).read()
+    except FileNotFoundError:
+        return ""
+
+
+def connected():
+    return set(re.findall(r"^\[model_providers\.([^\]]+)\]", read_config(), re.M))
+
+
+def cmd_list():
+    reg, auth, have = registry(), load(OC_AUTH), connected()
+    print(f"config: {CONFIG}\n")
+    rows = []
+    pids = set(auth) | have
+    if not auth:
+        # No opencode key store: list the common OpenAI-compatible providers
+        pids |= {p for p, e in reg.items()
+                 if e.get("api") and "openai-compatible" in (e.get("npm") or "")}
+    for pid in sorted(pids):
+        entry = auth.get(pid) or {"type": "env"}
+        r = reg.get(pid, {})
+        kind = entry.get("type")
+        base = SPECIAL.get(pid, {}).get("base_url") or r.get("api") or "—"
+        backend = SPECIAL.get(pid, {}).get("api_backend") or backend_of(r)
+        status = "attached" if pid in have else (
+            "oauth - needs a bridge" if kind == "oauth" else "ready")
+        if pid == "openai" and kind == "oauth":
+            status = "attached (chatgpt)" if "chatgpt" in have else "use `add chatgpt` - read the ToS warning"
+            base = SPECIAL["chatgpt"]["base_url"]
+        elif base == "—":
+            status = "unsupported (own SDK, no REST base_url)"
+        elif backend == "messages" and pid not in SPECIAL:
+            status = "unsupported (Anthropic x-api-key auth)"
+        rows.append((pid, kind, backend, status, base))
+    w = max(len(r[0]) for r in rows) if rows else 10
+    print(f"{'provider'.ljust(w)}  {'key':6}  {'protocol':16}  {'status':38}  base_url")
+    for pid, kind, backend, status, base in rows:
+        print(f"{pid.ljust(w)}  {kind:6}  {backend:16}  {status:38}  {base}")
+    extra = have - set(auth) - {"chatgpt"}
+    if extra:
+        print("\nAttached but absent from the key store:", ", ".join(sorted(extra)))
+    print("\nChatGPT (Plus/Pro plan): `grok-connect add chatgpt` - read the ToS warning in the README first.")
+
+
+def models_of(pid):
+    if pid in SPECIAL:
+        return [(m, SPECIAL[pid]["context"]) for m in SPECIAL[pid]["models"]]
+    reg = registry().get(pid, {})
+    out = []
+    for mid, m in reg.get("models", {}).items():
+        out.append((mid, (m.get("limit") or {}).get("context")))
+    return sorted(out)
+
+
+def cmd_models(pid):
+    ms = models_of(pid)
+    if not ms:
+        die(f"no models for '{pid}' in the registry")
+    for mid, ctx in ms:
+        print(f"  {mid:32} ctx={ctx}")
+
+
+def cmd_add(pid, wanted):
+    reg_entry = registry().get(pid, {})
+    special = SPECIAL.get(pid)
+    if not reg_entry and not special:
+        die(f"unknown provider '{pid}'. Run `grok-connect list`.")
+    if not special:
+        import subprocess
+        if subprocess.run(["grok-cred", pid], capture_output=True).returncode != 0:
+            die(f"no key for '{pid}'. Sign in with opencode, or export an environment "
+                f"variable (run `grok-cred {pid}` to see which names it tries).")
+
+    base = (special or {}).get("base_url") or reg_entry.get("api")
+    if not base:
+        die(f"'{pid}' has no REST base_url in the registry - it uses its own SDK, grok cannot call it directly.")
+    backend = (special or {}).get("api_backend") or backend_of(reg_entry)
+    if backend == "messages" and not special:
+        die(f"'{pid}' speaks the Anthropic protocol (x-api-key auth) - grok-cred cannot mint that yet.")
+    # models.dev already records the full base (e.g. Z.ai: /api/coding/paas/v4).
+    # Only append /v1 to a bare host - appending blindly yields a 404.
+    if base:
+        from urllib.parse import urlsplit
+        if urlsplit(base).path.strip("/") == "":
+            base = base.rstrip("/") + "/v1"
+
+    catalog = dict(models_of(pid))
+    picked = wanted or [m for m, _ in models_of(pid)][:3]
+    unknown = [m for m in picked if m not in catalog]
+    if unknown:
+        die(f"not in the registry: {', '.join(unknown)}\nSee `grok-connect models {pid}`.")
+
+    if pid in connected():
+        die(f"'{pid}' is already attached. Run `grok-connect remove {pid}` first to redo it.")
+
+    cred_id = "chatgpt" if pid == "chatgpt" else pid
+    lines = [f"\n# --- {pid} (grok-connect) ---"]
+    if special and special.get("note"):
+        lines.append(f"# {special['note']}")
+    lines += [
+        f"[auth_provider.{key_of(pid)}]",
+        f'command = "grok-cred {cred_id}"',
+        "",
+        f"[model_providers.{key_of(pid)}]",
+        f'base_url = "{base}"',
+        f'api_backend = "{backend}"',
+        f'auth_provider = "{key_of(pid)}"',
+    ]
+    if pid == "chatgpt":
+        import shutil, subprocess
+        if not shutil.which("chatgpt-responses-shim"):
+            die("`chatgpt-responses-shim` is not on PATH.\n"
+                "It is not installed by default because the ChatGPT path breaks OpenAI's terms.\n"
+                "Install it deliberately: ./install.sh --with-chatgpt")
+        acc = subprocess.run(["grok-cred", "chatgpt-account-id"], capture_output=True, text=True).stdout.strip()
+        lines.append(
+            f'extra_headers = {{ "chatgpt-account-id" = "{acc}", '
+            '"OpenAI-Beta" = "responses=experimental", "originator" = "codex_cli_rs" }'
+        )
+    for mid in picked:
+        lines += [
+            "",
+            f"[model.{key_of(mid)}]",
+            f'model = "{mid}"',
+            f'model_provider = "{key_of(pid)}"',
+            f'name = "{mid} ({pid})"',
+        ]
+        if catalog.get(mid):
+            lines.append(f"context_window = {catalog[mid]}")
+    with open(CONFIG, "a") as f:
+        f.write("\n".join(lines) + "\n")
+    print(f"attached '{pid}' to {CONFIG}")
+    print("model:", ", ".join(key_of(m) for m in picked))
+    print("Calling the endpoint:")
+    bad = cmd_test(pid)
+    if bad:
+        print(f"\n{bad} model(s) did not answer - see the explanation column above.")
+        print(f"If the base_url is wrong: `grok-connect remove {pid}`, fix it, attach again.")
+    else:
+        print("\nAll working. Use: grok -m <model>  ·  or /model inside the TUI")
+
+
+def sections(cfg):
+    """(section_name, body) - split on `[...]` header lines. A multiline regex is wrong
+    here: a negated class also matches newlines and bleeds into the next section."""
+    name, body = None, []
+    for line in cfg.splitlines():
+        head = re.match(r"\s*\[([^\]]+)\]\s*$", line)
+        if head:
+            if name:
+                yield name, "\n".join(body)
+            name, body = head.group(1), []
+        elif name:
+            body.append(line)
+    if name:
+        yield name, "\n".join(body)
+
+
+def probe(base, backend, model, token):
+    """One real call to the endpoint. `grok models` listing something proves nothing -
+    a wrong URL still shows up there and only fails at chat time with a 404."""
+    import urllib.request, urllib.error
+    if backend == "responses":
+        url = base.rstrip("/") + "/responses"
+        body = {"model": model, "input": [{"type": "message", "role": "user",
+                "content": "hi"}], "stream": True}
+    else:
+        url = base.rstrip("/") + "/chat/completions"
+        body = {"model": model, "messages": [{"role": "user", "content": "hi"}],
+                "max_tokens": 1, "stream": False}
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}",
+                 # Without a real UA the WAF in front of opencode.ai returns 403, which reads as a bad key.
+                 "User-Agent": "grok-connect/1.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=45) as r:
+            return r.status, ""
+    except urllib.error.HTTPError as e:
+        detail = e.read()[:200].decode("utf-8", "replace").replace("\n", " ")
+        return e.code, detail
+    except Exception as e:
+        return 0, str(e)[:150]
+
+
+HINT = {
+    200: "works",
+    401: "key wrong or expired",
+    403: "key not entitled to this model",
+    402: "out of balance - config is right, top up and it runs",
+    404: "wrong base_url or wrong model name",
+    429: "out of quota / rate limited - config is right, wait for reset",
+}
+
+
+def cmd_test(pid):
+    cfg = read_config()
+    secs = dict(sections(cfg))
+    blk = secs.get(f"model_providers.{key_of(pid)}")
+    if blk is None:
+        die(f"'{pid}' is not attached.")
+    base = re.search(r'base_url = "([^"]+)"', blk).group(1)
+    bm = re.search(r'api_backend = "([^"]+)"', blk)
+    backend = bm.group(1) if bm else "chat_completions"
+
+    import subprocess
+    cred_id = "chatgpt" if pid == "chatgpt" else pid
+    out = subprocess.run(["grok-cred", cred_id], capture_output=True, text=True)
+    if out.returncode != 0:
+        die(f"could not obtain a key: {out.stderr.strip()}")
+    tok = out.stdout.strip()
+    if tok.startswith("{"):
+        tok = json.loads(tok)["access_token"]
+
+    mine = []
+    for name, body in sections(cfg):
+        if not name.startswith("model.") or f'model_provider = "{key_of(pid)}"' not in body:
+            continue
+        mm = re.search(r'^model = "([^"]+)"', body, re.M)
+        if mm:
+            mine.append((name[len("model."):], mm.group(1)))
+    if not mine:
+        die(f"'{pid}' has no models in the config.")
+
+    bad = 0
+    for key, mid in mine:
+        code, detail = probe(base, backend, mid, tok)
+        hint = HINT.get(code, detail or "unknown")
+        mark = "ok  " if code == 200 else ("hm  " if code in (402, 429) else "LỖI")
+        if code != 200:
+            bad += 1
+        print(f"  {mark} {key:24} HTTP {code or '---'}  {hint}")
+    return bad
+
+
+def cmd_remove(pid):
+    s = read_config()
+    if pid not in connected():
+        die(f"'{pid}' is not attached.")
+    keep, dropped, owned = [], 0, []
+    for chunk in re.split(r"\n(?=\[)", s):
+        head = re.match(r"\[([^\]]+)\]", chunk.lstrip("\n"))
+        name = head.group(1) if head else ""
+        block = (name in (f"auth_provider.{key_of(pid)}", f"model_providers.{key_of(pid)}")
+                 or name.startswith("model.") and f'model_provider = "{key_of(pid)}"' in chunk)
+        if block:
+            dropped += 1
+            if name.startswith("model."):
+                owned.append(name[len("model."):])
+            continue
+        keep.append(chunk)
+    open(CONFIG, "w").write("\n".join(keep))
+    print(f"detached '{pid}' ({dropped} block(s))" + (f", models: {', '.join(sorted(owned))}" if owned else ""))
+
+
+def main():
+    if len(sys.argv) < 2:
+        die(__doc__.strip(), 2)
+    cmd, args = sys.argv[1], sys.argv[2:]
+    if cmd == "list":
+        cmd_list()
+    elif cmd == "models":
+        cmd_models(args[0]) if args else die("provider name required")
+    elif cmd == "add":
+        cmd_add(args[0], args[1:]) if args else die("provider name required")
+    elif cmd == "test":
+        sys.exit(1 if (cmd_test(args[0]) if args else die("provider name required")) else 0)
+    elif cmd == "remove":
+        cmd_remove(args[0]) if args else die("provider name required")
+    else:
+        die(f"unknown command: {cmd}", 2)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""grok-cred <provider> - credential helper for Grok Build ([auth_provider.*]).
+
+Key sources, in order: opencode's credential store
+(~/.local/share/opencode/auth.json), Codex CLI (~/.codex/auth.json), then environment
+variables (names declared by the models.dev registry, e.g. DEEPSEEK_API_KEY, or
+GROK_CRED_<PROVIDER>). Secrets are never duplicated into config.toml.
+
+stdout: bare token (api key) or JSON {"access_token","expires_in"} (oauth).
+stderr: messages for the user. Non-zero exit = failure.
+"""
+import json, os, re, subprocess, sys, time, urllib.request, urllib.error
+
+OC_AUTH = os.path.expanduser(os.environ.get("OPENCODE_AUTH", "~/.local/share/opencode/auth.json"))
+CODEX_AUTH = os.path.expanduser(os.environ.get("CODEX_AUTH", "~/.codex/auth.json"))
+REGISTRY = os.path.expanduser("~/.cache/opencode/models.json")
+REGISTRY_FALLBACK = os.path.expanduser("~/.cache/grok-connect/models.json")
+# Public client_id of the Codex CLI, used for the ChatGPT refresh grant.
+CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
+SKEW = 120  # seconds: treat a token as expired early so we never hand out a stale one
+
+
+def die(msg):
+    print(msg, file=sys.stderr)
+    sys.exit(1)
+
+
+def load(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def env_key_for(provider):
+    """Key from the environment, for people who do not use opencode.
+
+    Order: the variable names models.dev declares (e.g. DEEPSEEK_API_KEY), then
+    GROK_CRED_<PROVIDER> upper-cased."""
+    names = []
+    for path in (REGISTRY, REGISTRY_FALLBACK):
+        reg = load(path).get(provider)
+        if reg:
+            names += reg.get("env") or []
+            break
+    names.append("GROK_CRED_" + re.sub(r"[^A-Za-z0-9]", "_", provider).upper())
+    for n in names:
+        val = os.environ.get(n)
+        if val and val.strip():
+            return val.strip(), n
+    return None, names
+
+
+def emit_api_key(entry, provider):
+    key = entry.get("key")
+    if not key:
+        die(f"grok-cred: '{provider}' in the key store has no 'key' field")
+    sys.stdout.write(key)
+
+
+def refresh_chatgpt(refresh_token):
+    """Exchange a refresh_token for a fresh access_token. Returns (access, refresh, expires_in)."""
+    body = json.dumps({
+        "client_id": CODEX_CLIENT_ID,
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+        "scope": "openid profile email",
+    }).encode()
+    req = urllib.request.Request(
+        "https://auth.openai.com/oauth/token",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=20) as r:
+        d = json.load(r)
+    return d.get("access_token"), d.get("refresh_token", refresh_token), int(d.get("expires_in", 3600))
+
+
+def ensure_shim(port=8788):
+    """Start the shim if the port is closed. Grok runs this helper before any turn that
+    needs a token, so it is the cheapest place to keep the shim alive."""
+    import socket
+    with socket.socket() as s:
+        s.settimeout(0.3)
+        if s.connect_ex(("127.0.0.1", port)) == 0:
+            return
+    subprocess.Popen(
+        ["chatgpt-responses-shim", str(port)],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    for _ in range(30):
+        time.sleep(0.1)
+        with socket.socket() as s:
+            s.settimeout(0.3)
+            if s.connect_ex(("127.0.0.1", port)) == 0:
+                print(f"grok-cred: started chatgpt-responses-shim on :{port}", file=sys.stderr)
+                return
+    print("grok-cred: could not start the shim", file=sys.stderr)
+
+
+def emit_chatgpt():
+    """Prefer a live token; when expired, refresh and write back to ~/.codex/auth.json."""
+    now = time.time()
+    codex = load(CODEX_AUTH)
+    tok = codex.get("tokens") or {}
+    access, refresh = tok.get("access_token"), tok.get("refresh_token")
+    # opencode holds the same kind of token - use it as a fallback source
+    oc = load(OC_AUTH).get("openai") or {}
+    oc_exp = (oc.get("expires") or 0) / 1000.0
+
+    # If opencode's copy still has life in it, use that and skip the network call.
+    if oc.get("access") and oc_exp - SKEW > now:
+        print("grok-cred: using the ChatGPT access token from opencode", file=sys.stderr)
+        print(json.dumps({"access_token": oc["access"], "expires_in": int(oc_exp - now)}))
+        return
+
+    if not refresh:
+        refresh = oc.get("refresh")
+    if not refresh:
+        die("grok-cred: no ChatGPT refresh_token found (run `codex login` first)")
+
+    try:
+        access, new_refresh, expires_in = refresh_chatgpt(refresh)
+    except urllib.error.HTTPError as e:
+        die(f"grok-cred: ChatGPT refresh failed, HTTP {e.code}: {e.read()[:200]!r}")
+    except Exception as e:
+        die(f"grok-cred: ChatGPT refresh failed: {e}")
+    if not access:
+        die("grok-cred: OpenAI returned no access_token")
+
+    if codex.get("tokens"):
+        codex["tokens"]["access_token"] = access
+        codex["tokens"]["refresh_token"] = new_refresh
+        codex["last_refresh"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        tmp = CODEX_AUTH + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(codex, f)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, CODEX_AUTH)
+
+    print("grok-cred: refreshed the ChatGPT access token", file=sys.stderr)
+    print(json.dumps({"access_token": access, "expires_in": expires_in}))
+
+
+def main():
+    if len(sys.argv) != 2:
+        die("usage: grok-cred <provider-id|chatgpt|chatgpt-account-id>")
+    provider = sys.argv[1]
+
+    if provider == "chatgpt":
+        ensure_shim()
+        return emit_chatgpt()
+
+    if provider == "chatgpt-account-id":
+        acc = (load(CODEX_AUTH).get("tokens") or {}).get("account_id") \
+            or (load(OC_AUTH).get("openai") or {}).get("accountId")
+        if not acc:
+            die("grok-cred: no chatgpt account_id found")
+        sys.stdout.write(acc)
+        return
+
+    entry = load(OC_AUTH).get(provider)
+    if entry and entry.get("type") == "api":
+        return emit_api_key(entry, provider)
+
+    val, tried = env_key_for(provider)
+    if val:
+        sys.stdout.write(val)
+        return
+
+    if entry:
+        die(f"grok-cred: provider '{provider}' of type '{entry.get('type')}' is not supported")
+    die(f"grok-cred: no key found for '{provider}'.\n"
+        f"  - key store: {OC_AUTH}\n"
+        f"  - environment variables tried: {', '.join(tried)}")
+
+
+if __name__ == "__main__":
+    main()
