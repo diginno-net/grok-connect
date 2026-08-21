@@ -123,6 +123,7 @@ class Handler(BaseHTTPRequestHandler):
         `response.output_item.done` and splice them back into `output`.
         """
         items, name, data = [], None, []
+        dropped = set()
 
         def send(chunk):
             self.wfile.write(b"%x\r\n" % len(chunk) + chunk + b"\r\n")
@@ -133,6 +134,17 @@ class Handler(BaseHTTPRequestHandler):
         def flush_event():
             nonlocal name, data
             if name is None and not data:
+                return
+            # Grok parse SSE bằng enum đóng: gặp variant lạ là lỗi `serialization`
+            # KHÔNG retry được, chết cả lượt. Backend Codex thỉnh thoảng chèn
+            # `keepalive` (nhịp tim lúc model nghĩ lâu). Mọi event mang nghĩa của
+            # Responses API đều nằm dưới `response.*` (hoặc `error`), nên cái gì
+            # ngoài đó là nhiễu vận chuyển — bỏ đi an toàn hơn là để nó giết lượt.
+            if name and not (name.startswith("response.") or name == "error"):
+                if name not in dropped:
+                    dropped.add(name)
+                    self.log_message("bỏ event lạ: %s", name)
+                name, data = None, []
                 return
             body = "\n".join(data)
             if name == "response.output_item.done":

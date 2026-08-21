@@ -184,6 +184,11 @@ to a Responses-style backend:
    retryable server error, and re-sends the *same* payload until the retry budget runs out. The
    shim collects items from `response.output_item.done` and splices them back into `output`.
 
+3. **`serialization error: unknown variant 'keepalive'`.** During long thinking the backend
+   emits an SSE `keepalive` heartbeat. Grok parses the stream with a closed enum, so an unknown
+   event is a **non-retryable** error that kills the turn outright. The shim forwards only
+   `response.*` events (plus `error`) and drops transport noise.
+
 The model name must be one the ChatGPT plan allows (`gpt-5.6-sol` works; `gpt-5` is rejected).
 `grok-cred` starts the shim on demand, so there is nothing to run by hand. Expect one extra
 upstream request per session: grok tries HTTP/2 first and falls back to HTTP/1.1.

@@ -174,6 +174,10 @@ grok-connect add chatgpt
    判定为可重试的服务端错误，于是把*同一份 payload* 反复重发，直到重试额度耗尽。shim 会从
    `response.output_item.done` 收集条目，再塞回 `output`。
 
+3. **`serialization error: unknown variant 'keepalive'`。** 模型思考较久时，后端会发送 SSE
+   `keepalive` 心跳。Grok 用封闭枚举解析事件流，遇到未知事件就是**不可重试**的错误，整轮直接
+   失败。shim 只转发 `response.*`（以及 `error`）事件，丢弃传输层噪音。
+
 模型名必须是 ChatGPT 套餐允许的（`gpt-5.6-sol` 可用；`gpt-5` 被拒）。`grok-cred` 会按需启动
 shim，不用手动跑。每个会话会多一次上游请求：grok 先试 HTTP/2，失败后回落到 HTTP/1.1。
 

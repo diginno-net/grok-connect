@@ -180,6 +180,11 @@ backend kiểu Responses:
    tới khi hết hạn mức retry. Shim gom item từ `response.output_item.done` rồi nhét ngược vào
    `output`.
 
+3. **`serialization error: unknown variant 'keepalive'`.** Lúc model nghĩ lâu, backend chèn
+   nhịp tim SSE `keepalive`. Grok parse stream bằng enum đóng nên gặp event lạ là lỗi **không
+   retry được**, chết luôn cả lượt. Shim chỉ chuyển tiếp event `response.*` (và `error`), bỏ
+   phần nhiễu vận chuyển.
+
 Tên model phải là cái gói ChatGPT cho phép (`gpt-5.6-sol` chạy; `gpt-5` bị từ chối). `grok-cred`
 tự bật shim khi cần nên không phải chạy tay gì. Chấp nhận thêm 1 request/session: grok thử HTTP/2
 trước rồi mới fallback HTTP/1.1.
