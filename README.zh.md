@@ -136,6 +136,10 @@ Token 不落盘。挂了 auth provider 的模型是**严格 BYOK：你的 xAI �
 - **不要无脑拼 `/v1`。** models.dev 记录的已经是完整 base。智谱是 `…/api/coding/paas/v4`，
   再加 `/v1` 直接 404。只有裸主机名（`https://api.deepseek.com`）才需要补。本工具处理对了——
   但你手改配置时就会踩这个坑。
+- **重复声明表会让整份配置作废——而且没有任何提示。** TOML 不允许 `[skills]` 或 `[plugins]`
+  出现两次，而 grok 遇到无效配置会丢弃**整个文件**——你的模型供应商也一起没了。终端不会报错，
+  只有 `grok inspect --json` 里的 `configSources` 会显示 `"note": "parse error"`。
+  `grok-connect` 宁可不写也不会造成这种情况；但你手改配置时，请**并入已有的表**，不要再加一个。
 - **Grok 会重写 `config.toml`。** 在 TUI 里切换模型会让 grok 规范化整个文件并**删掉所有注释**。
   还见过它把 `[models] default` 改成最后用过的模型。玩过模型选择器之后回头看一眼那一行。
 - **探测请求不带真实 `User-Agent` 会拿到 403。** `opencode.ai` 前面的 WAF 会拒绝

@@ -140,6 +140,12 @@ That split matters: 402 and 429 are account problems, 404 is your mistake.
 - **Don't append `/v1` blindly.** models.dev already records the full base. Z.ai is
   `…/api/coding/paas/v4`; adding `/v1` yields a 404. Only a bare host (`https://api.deepseek.com`)
   needs it. This tool gets it right — but if you hand-edit, this is the trap.
+- **A duplicate table kills the whole config — silently.** TOML forbids declaring `[skills]` or
+  `[plugins]` twice, and grok responds to an invalid config by discarding **the entire file** —
+  your model providers included. Nothing is printed; only `grok inspect --json` shows
+  `configSources` with `"note": "parse error"`. `grok-connect` refuses to write rather than
+  produce that, but if you hand-edit, merge into the existing table instead of appending a
+  second one.
 - **Grok rewrites `config.toml`.** Switching models in the TUI makes grok normalise the file and
   **strip every comment**. It has also been seen rewriting `[models] default` to the last model
   used. Re-check that line after playing with the model picker.

@@ -137,6 +137,11 @@ Tách như vậy mới rõ: 402 và 429 là chuyện tài khoản, còn 404 là 
 - **Đừng nối `/v1` một cách máy móc.** models.dev đã ghi base đầy đủ. Z.ai là
   `…/api/coding/paas/v4`, nối thêm `/v1` là 404 ngay. Chỉ host trần
   (`https://api.deepseek.com`) mới cần. Tool này xử đúng rồi — nhưng sửa tay thì dính bẫy này.
+- **Khai trùng một bảng là chết cả config — mà im lặng.** TOML cấm khai `[skills]` hay
+  `[plugins]` hai lần, và grok gặp config sai thì bỏ **nguyên file** — mất luôn model provider.
+  Không báo gì cả; chỉ `grok inspect --json` mới lộ `configSources` có `"note": "parse error"`.
+  `grok-connect` thà không ghi còn hơn tạo ra tình trạng đó, nhưng sửa tay thì nhớ **gộp vào
+  bảng có sẵn**, đừng thêm bảng thứ hai.
 - **Grok tự ghi đè `config.toml`.** Đổi model trong TUI là nó normalise lại file và **xoá sạch
   comment**. Có lần nó còn tự đổi `[models] default` thành model vừa dùng. Nghịch model picker
   xong nhớ liếc lại dòng đó.

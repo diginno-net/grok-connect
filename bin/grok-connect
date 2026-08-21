@@ -86,6 +86,42 @@ def key_of(name):
     return re.sub(r"[^A-Za-z0-9_-]", "_", name)
 
 
+def table_names(text):
+    """Tên mọi bảng `[x]` trong file, theo thứ tự xuất hiện."""
+    return re.findall(r"^\s*\[([^\[\]]+)\]\s*$", text, re.M)
+
+
+def config_problem(text):
+    """Lý do `text` sẽ làm grok bỏ config, hoặc None nếu ổn.
+
+    Khai báo trùng bảng là TOML sai, mà grok gặp config sai thì bỏ NGUYÊN FILE —
+    mất cả model provider vừa ghi, và không báo gì cả (chỉ `grok inspect --json`
+    mới lộ `configSources.note = "parse error"`). Kiểm trước khi kịp hỏng."""
+    names = table_names(text)
+    dupes = sorted({n for n in names if names.count(n) > 1})
+    if dupes:
+        return f"bảng khai trùng: {', '.join(dupes)}"
+    try:
+        import tomllib                     # 3.11+; bản cũ hơn thì bỏ qua bước này
+    except ImportError:
+        return None
+    try:
+        tomllib.loads(text)
+    except Exception as e:
+        return f"TOML không hợp lệ: {e}"
+    return None
+
+
+def write_config(text, action):
+    """Ghi config, nhưng chỉ khi kết quả còn đọc được. Hỏng thì không đụng file."""
+    problem = config_problem(text)
+    if problem:
+        die(f"huỷ {action}: {problem}\n"
+            f"Config giữ nguyên. Grok bỏ cả file khi TOML sai, nên thà không ghi.")
+    with open(CONFIG, "w") as f:
+        f.write(text)
+
+
 def read_config():
     try:
         return open(CONFIG).read()
@@ -217,8 +253,15 @@ def cmd_add(pid, wanted):
         ]
         if catalog.get(mid):
             lines.append(f"context_window = {catalog[mid]}")
-    with open(CONFIG, "a") as f:
-        f.write("\n".join(lines) + "\n")
+    current = read_config()
+    clash = sorted(set(table_names(current)) &
+                   {f"auth_provider.{key_of(pid)}", f"model_providers.{key_of(pid)}"} |
+                   ({f"model.{key_of(m)}" for m in picked} & set(table_names(current))))
+    if clash:
+        die(f"config đã có bảng: {', '.join(clash)}.\n"
+            f"Ghi thêm sẽ thành khai trùng và grok bỏ cả file. "
+            f"Gỡ bằng tay hoặc `grok-connect remove {pid}` trước.")
+    write_config(current.rstrip() + "\n" + "\n".join(lines) + "\n", f"cắm '{pid}'")
     print(f"attached '{pid}' to {CONFIG}")
     print("model:", ", ".join(key_of(m) for m in picked))
     print("Calling the endpoint:")
@@ -338,7 +381,7 @@ def cmd_remove(pid):
                 owned.append(name[len("model."):])
             continue
         keep.append(chunk)
-    open(CONFIG, "w").write("\n".join(keep))
+    write_config("\n".join(keep), f"gỡ '{pid}'")
     print(f"detached '{pid}' ({dropped} block(s))" + (f", models: {', '.join(sorted(owned))}" if owned else ""))
 
 
