@@ -1,0 +1,239 @@
+#!/usr/bin/env python3
+"""Keep only the skills grok actually uses; hide the rest from its catalogue.
+
+Why: grok collects skills from ~/.grok*/skills, ~/.agents/skills, ~/.claude
+(Claude Code compatibility) and plugins. On a machine with a large skill library
+that catalogue reaches hundreds of KB - and grok re-injects it on EVERY model
+call and keeps every copy in the transcript. Measured here: 460 skills = 145 KB
+= ~37k tokens per call, which pushed three sessions past 3M tokens and broke them.
+
+"Used" means: grok opened <skill>/SKILL.md during a session. It has no `skill`
+tool - reading the file is how it loads one.
+
+No skill file is touched. This only writes `[skills] ignore` into config.toml,
+so your skill store stays the single source of truth and symlinks stay intact.
+
+  grok-skills-prune            # show what would be kept/hidden, write nothing
+  grok-skills-prune --apply    # write to config.toml in every grok home
+"""
+import collections, glob, json, os, re, shutil, subprocess, sys, tomllib
+
+H = os.path.expanduser
+APPLY = "--apply" in sys.argv
+EXTRA_KEEP = {"connect"}          # grok-only skills that must always survive
+
+# Optional: a LarkBase table that already tracks skill usage across your CLIs.
+# Grok's own history is narrow (it is new, and mostly used for coding), so a
+# cross-tool registry is the better signal when you have one. Configure it in
+# ~/.config/grok-connect/registry.json:
+#
+#   {"base_token": "...", "table_id": "tbl...", "keep_status": "Frequently used",
+#    "name_field": "Skill", "status_field": "Status"}
+#
+# No file, no lark-cli, or an unreachable Base -> the tool silently falls back to
+# grok's own history. It never becomes a hard dependency.
+REGISTRY_CONF = H("~/.config/grok-connect/registry.json")
+REGISTRY_CACHE = H("~/.cache/grok-connect/skill-usage.ndjson")
+ROOTS = ["~/.grok/skills", "~/.grok-100/skills", "~/.grok-30/skills",
+         "~/.agents/skills", "~/.claude/skills", "~/.claude/commands",
+         "~/.claude/plugins", "~/vbsec/skills"]
+
+
+def used_in_grok():
+    """Count how often grok opened each skill's SKILL.md, across saved sessions."""
+    c = collections.Counter()
+    for fp in glob.glob(H("~/.grok*/sessions/*/*/chat_history.jsonl")):
+        try: fh = open(fp, errors="replace")
+        except OSError: continue
+        for line in fh:
+            if "SKILL.md" not in line or '"tool_calls"' not in line:
+                continue
+            try: d = json.loads(line)
+            except ValueError: continue
+            for tc in d.get("tool_calls") or []:
+                for m in re.finditer(r"([^\"\\ ]+)/SKILL\.md", tc.get("arguments") or ""):
+                    name = os.path.basename(m.group(1))
+                    if name not in ("*", "**"):
+                        c[name] += 1
+    return c
+
+
+def frequently_used():
+    """Skill names an external usage registry marks as frequently used.
+
+    Refreshes from the Base when it can and caches the result; on a network or auth
+    failure it reuses the stale cache. With neither, it returns an empty set and the
+    keep-list falls back to grok's own history."""
+    try:
+        conf = json.load(open(REGISTRY_CONF))
+    except Exception:
+        return set()
+    base, table = conf.get("base_token"), conf.get("table_id")
+    if not (base and table):
+        return set()
+    keep_status = conf.get("keep_status", "Frequently used")
+    name_field = conf.get("name_field", "Skill")
+    status_field = conf.get("status_field", "Status")
+    os.makedirs(os.path.dirname(REGISTRY_CACHE), exist_ok=True)
+    try:
+        # lark-cli only accepts a RELATIVE `--output` path; an absolute one is a
+        # validation error. Run inside the cache dir and pass just the filename.
+        r = subprocess.run(
+            ["lark-cli", "base", "+record-list", "--base-token", base,
+             "--table-id", table, "--as", "bot",
+             "--format", "ndjson", "--output", os.path.basename(REGISTRY_CACHE), "--overwrite"],
+            cwd=os.path.dirname(REGISTRY_CACHE), capture_output=True, text=True, timeout=180)
+        if r.returncode != 0:
+            raise RuntimeError((r.stderr or r.stdout)[:200])
+    except Exception as e:
+        if not os.path.exists(REGISTRY_CACHE):
+            print(f"  (registry unreachable, ignoring it: {e})", file=sys.stderr)
+            return set()
+        print(f"  (using stale registry cache: {e})", file=sys.stderr)
+    out = set()
+    for line in open(REGISTRY_CACHE, errors="replace"):
+        try: row = json.loads(line)
+        except ValueError: continue
+        if keep_status in str(row.get(status_field)) and row.get(name_field):
+            out.add(row[name_field])
+    return out
+
+
+def discover():
+    """{name: [EVERY real directory holding a SKILL.md of that name]}.
+
+    Two sources, merged:
+      1. `grok inspect --json` - authoritative about what grok currently loads,
+         including bundled, plugin and marketplace-cache skills that a hand-written
+         directory walk misses.
+      2. A walk of the roots implied by (1) - because inspect reports only ONE path
+         per name (the one that won priority). Hide that copy and grok falls through
+         to the next one; hide that and another appears. Every copy must be listed.
+    """
+    out = collections.defaultdict(set)
+    roots = set()
+    stripped: list[tuple[str, str]] = []
+    for home in sorted(set(glob.glob(H("~/.grok")) + glob.glob(H("~/.grok-*")))):
+        if not os.path.isdir(home):
+            continue
+        # Scanning with the previous ignore still active only shows the survivors,
+        # and the next write would then un-hide everything it just hid. Strip it
+        # first, ask grok, then write the new list.
+        cfg = os.path.join(home, "config.toml")
+        if os.path.exists(cfg):
+            original = open(cfg).read()
+            cleaned = strip_skills_table(original)
+            if cleaned != original:
+                open(cfg, "w").write(cleaned)
+                # A dry run must leave the machine exactly as it found it. The strip
+                # above is only there so `grok inspect` can see the full catalogue.
+                stripped.append((cfg, original))
+        env = dict(os.environ, GROK_HOME=home)
+        try:
+            data = json.loads(subprocess.run(["grok", "inspect", "--json"], env=env,
+                                             capture_output=True, text=True, timeout=180).stdout)
+        except Exception as e:
+            print(f"  (skipping {home}: {e})", file=sys.stderr)
+            continue
+        for sk in data.get("skills") or []:
+            path = (sk.get("source") or {}).get("path")
+            if not path:
+                continue
+            d = os.path.realpath(os.path.dirname(path))
+            out[sk["name"]].add(d)
+            roots.add(os.path.dirname(d))          # the directory holding skills
+    if not APPLY:
+        for cfg, original in stripped:
+            open(cfg, "w").write(original)
+
+    for r in list(roots) + [H(x) for x in ROOTS]:
+        if not os.path.isdir(r):
+            continue
+        for dp, _, files in os.walk(r, followlinks=True):
+            if "SKILL.md" in files:
+                out[os.path.basename(dp)].add(os.path.realpath(dp))
+    return out
+
+
+def compress(drop_dirs, keep_dirs):
+    """Hide one skill directory at a time.
+
+    Collapsing to a parent directory makes the config shorter, but a single kept
+    skill anywhere in that subtree makes the collapse wrong and hundreds leak back
+    in. The explicit list is long and correct - and this block is generated anyway."""
+    return sorted(set(drop_dirs))
+
+
+def strip_skills_table(text):
+    """Strip the [skills] table (and the comment block above it) from a config."""
+    lines, out, skipping = text.splitlines(True), [], False
+    for line in lines:
+        stripped = line.strip()
+        if stripped == "[skills]":
+            skipping = True
+            # swallow the comment block glued to the table above it
+            while out and (out[-1].lstrip().startswith("#") or not out[-1].strip()):
+                out.pop()
+            continue
+        if skipping:
+            if stripped.startswith("[") and not stripped.startswith("[["):
+                skipping = False
+            else:
+                continue
+        out.append(line)
+    return "".join(out)
+
+
+def main():
+    usage, found = used_in_grok(), discover()
+    frequent = frequently_used()
+    keep = {n for n in found if usage.get(n) or n in frequent or n in EXTRA_KEEP}
+    keep_dirs = {d for n in keep for d in found[n]}
+    drop_dirs = {d for n, ds in found.items() if n not in keep for d in ds}
+    ignore = compress(drop_dirs, keep_dirs)
+
+    print(f"found {len(found)} skills · keeping {len(keep)} · hiding {len(found)-len(keep)}")
+    print(f"  kept from grok history: {len([n for n in keep if usage.get(n)])}"
+          + (f" · from usage registry: {len(keep & frequent)}" if frequent else ""))
+    print(f"ignore entries written: {len(ignore)}\n")
+    print("kept, most-used first:")
+    for n, c in sorted(keep, key=lambda n: -usage.get(n, 0))[:0] or []: pass
+    for n in sorted(keep, key=lambda n: (-usage.get(n, 0), n))[:15]:
+        print(f"   {usage.get(n,0):3} uses  {n}")
+    if len(keep) > 15:
+        print(f"   … and {len(keep)-15} more")
+
+    if not APPLY:
+        print("\n(dry run — pass --apply to write the config)")
+        return
+
+    body = "[skills]\nignore = [\n" + "".join(
+        f'  "{p.replace(os.path.expanduser("~"), "~", 1)}",\n' for p in ignore) + "]\n"
+    header = ("# Generated by `grok-skills-prune` — keeps only the skills grok has used.\n"
+              "# The skill catalogue is re-injected on EVERY model call; the whole store\n"
+              "# would eat the context window. Added a new skill? Re-run this command.\n"
+              "# `ignore` matches on the RESOLVED path (symlinks are followed).\n")
+    for home in glob.glob(H("~/.grok")) + glob.glob(H("~/.grok-*")):
+        cfg = os.path.join(home, "config.toml")
+        if not os.path.exists(cfg):
+            continue
+        # Strip EVERY existing [skills] table. A duplicate table is invalid TOML, and
+        # grok answers an invalid config by dropping the WHOLE FILE — model providers
+        # included, not just skills.
+        s = strip_skills_table(open(cfg).read())
+        backup = cfg + ".prebak"
+        shutil.copy(cfg, backup)
+        open(cfg, "w").write(s.rstrip() + "\n\n" + header + body)
+        # An invalid config makes grok discard the whole file, model providers and
+        # all. If the result would not parse, restore the previous version.
+        try:
+            tomllib.load(open(cfg, "rb"))
+            os.remove(backup)
+            print(f"wrote {cfg}")
+        except Exception as e:
+            shutil.move(backup, cfg)
+            print(f"SKIPPED {cfg} — writing it would break the TOML ({e})", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()

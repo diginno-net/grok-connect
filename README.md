@@ -61,6 +61,7 @@ prove the thing actually works**.
 | `grok-connect` | CLI: `list` · `models` · `add` · `test` · `remove`. Writes/removes the config blocks. |
 | `grok-cred` | Credential helper wired into grok's `[auth_provider.*]`. Resolves keys at call time so **no secret is ever written into `config.toml`**. |
 | `/connect` skill | The CLI, surfaced as a slash command inside the grok TUI. Ships in English, Vietnamese and Chinese. |
+| `grok-skills-prune` | Trims grok's skill catalogue down to what it actually uses — see the section below. |
 | `chatgpt-responses-shim` | *Optional, not installed by default.* Bridges grok to a ChatGPT subscription through an unofficial endpoint — see [the section below](#chatgpt-subscription--optional-unofficial-endpoint). |
 
 ## Requirements
@@ -210,6 +211,48 @@ Vietnamese-first, English welcome.
 
 Bug reports and pull requests go in the issue tracker; the group is for the messier
 "has anyone got X talking to Y" conversations.
+
+## Bonus: `grok-skills-prune`
+
+Not about providers — but it ships here because it fixes the other way a grok session dies.
+
+Grok collects skills from `~/.grok*/skills`, `~/.agents/skills`, `~/.claude/skills` and plugins
+(Claude Code compatibility, no off switch), lists **all of them** in one `<system-reminder>`, and
+**re-injects that list on every model call** — keeping every copy in the transcript.
+
+Measured on a machine with a large skill library:
+
+```
+460 skills = 145 KB = ~37,000 tokens per model call
+72 copies in one session = 10.4 MB = 98% of the transcript
+three sessions passed 3M tokens and could not recover
+```
+
+Auto-compact cannot rescue that: the compaction request carries the same history, so it is
+rejected too. And a third-party provider reports the overflow inside the SSE stream with no HTTP
+status, so grok reads it as retryable and re-sends the identical oversized payload 15 times —
+about nine minutes of looking frozen before the turn fails.
+
+```sh
+grok-skills-prune            # show what would be kept/hidden, write nothing
+grok-skills-prune --apply    # write [skills] ignore into every grok home
+```
+
+It keeps the skills grok has actually opened (`<skill>/SKILL.md` reads in session history — grok
+has no `skill` tool, reading the file *is* how it loads one) and hides the rest. No skill file is
+moved or edited; only `[skills] ignore` is written, so your skill store stays the source of truth.
+
+**Optional usage registry.** Grok's own history is narrow if grok is new to your setup. Point the
+tool at a table that already tracks skill usage across your tools:
+
+```json
+// ~/.config/grok-connect/registry.json
+{"base_token": "…", "table_id": "tbl…", "keep_status": "Frequently used",
+ "name_field": "Skill", "status_field": "Status"}
+```
+
+Needs `lark-cli`. Missing file, missing CLI, or an unreachable Base — the tool silently falls back
+to grok's history. Re-run after adding skills.
 
 ## License
 

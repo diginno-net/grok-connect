@@ -58,6 +58,7 @@ và danh mục model, tự lấy khoá, ghi config, **rồi gọi thật vào en
 | `grok-connect` | CLI: `list` · `models` · `add` · `test` · `remove`. Ghi/gỡ các khối config. |
 | `grok-cred` | Credential helper cắm vào `[auth_provider.*]` của grok. Lấy khoá lúc gọi, nên **không secret nào bị ghi vào `config.toml`**. |
 | Skill `/connect` | Chính cái CLI trên, hiện thành slash command trong TUI grok. Có bản Anh, Việt, Trung. |
+| `grok-skills-prune` | Cắt danh mục skill của grok xuống còn thứ nó thực sự dùng — xem mục cuối README. |
 | `chatgpt-responses-shim` | *Tuỳ chọn, mặc định không cài.* Nối grok với gói ChatGPT qua một endpoint không chính thức — xem mục ở cuối README. |
 
 ## Cần có
@@ -204,6 +205,47 @@ ghép mấy con AI coding CLI (opencode, Grok Build, Codex, Claude Code) vào vi
 
 Báo lỗi và pull request thì để ở issue tracker; nhóm dành cho mấy chuyện lộn xộn kiểu
 "có ai nối được X với Y chưa".
+
+## Kèm theo: `grok-skills-prune`
+
+Không liên quan provider — nhưng nằm trong repo này vì nó chữa cái cách *còn lại* làm chết phiên grok.
+
+Grok gom skill từ `~/.grok*/skills`, `~/.agents/skills`, `~/.claude/skills` và plugin (compat
+Claude Code, không tắt được), liệt kê **tất cả** vào một `<system-reminder>`, rồi **chèn lại danh
+mục đó mỗi lượt gọi model** — và giữ luôn mọi bản sao trong lịch sử hội thoại.
+
+Đo trên máy có kho skill lớn:
+
+```
+460 skill = 145 KB = ~37.000 token mỗi lượt gọi model
+72 bản sao trong 1 phiên = 10,4 MB = 98% toàn bộ lịch sử
+ba phiên vượt 3M token và không cứu được
+```
+
+Auto-compact không cứu nổi: request compact vác đúng đống lịch sử đó nên cũng bị từ chối. Còn
+provider bên thứ ba báo lỗi vượt cửa sổ **bên trong SSE stream**, không có HTTP status, nên grok
+tưởng retry được và gửi lại y hệt payload quá khổ 15 lần — khoảng 9 phút đứng im rồi mới lỗi.
+
+```sh
+grok-skills-prune            # xem sẽ giữ/chặn gì, không ghi
+grok-skills-prune --apply    # ghi [skills] ignore vào mọi grok home
+```
+
+Nó giữ những skill grok **thực sự đã mở** (đếm lượt đọc `<skill>/SKILL.md` trong lịch sử phiên —
+grok không có tool `skill`, đọc file *chính là* cách nó nạp skill) và chặn phần còn lại. Không di
+chuyển hay sửa file skill nào; chỉ ghi `[skills] ignore`, nên kho skill của bạn vẫn là nguồn duy nhất.
+
+**Sổ đăng ký lượt dùng (tuỳ chọn).** Lịch sử riêng của grok sẽ hẹp nếu grok mới vào hệ của bạn.
+Trỏ tool sang một bảng đã theo dõi lượt dùng skill trên nhiều tool:
+
+```json
+// ~/.config/grok-connect/registry.json
+{"base_token": "…", "table_id": "tbl…", "keep_status": "Dùng thường xuyên",
+ "name_field": "Skill", "status_field": "Trạng thái"}
+```
+
+Cần `lark-cli`. Không có file, không có CLI, hoặc Base không gọi được — tool tự lùi về dùng lịch
+sử grok, không báo lỗi ầm ĩ. Thêm skill mới thì chạy lại.
 
 ## Giấy phép
 

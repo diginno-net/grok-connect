@@ -57,6 +57,7 @@ Grok Build 本来就是个多供应商客户端——它的 sampler 会说三种
 | `grok-connect` | CLI：`list` · `models` · `add` · `test` · `remove`。负责写入/移除配置块。 |
 | `grok-cred` | 接进 grok `[auth_provider.*]` 的凭据助手。调用时才取密钥，所以**不会有任何 secret 写进 `config.toml`**。 |
 | `/connect` skill | 上面那个 CLI，在 grok TUI 里以斜杠命令出现。提供英文、越南文、中文三版。 |
+| `grok-skills-prune` | 把 grok 的技能清单裁剪到它真正用到的部分——见文末章节。 |
 | `chatgpt-responses-shim` | *可选，默认不安装。* 通过一个非官方端点把 grok 接到 ChatGPT 订阅上——见文末对应章节。 |
 
 ## 前置条件
@@ -194,6 +195,47 @@ shim，不用手动跑。每个会话会多一次上游请求：grok 先试 HTTP
 Claude Code）接进真实工作流的 Facebook 群组。主要讲越南语，英文也没问题。
 
 Bug 和 PR 请走 issue tracker；群组更适合那种"有人成功把 X 接到 Y 了吗"的话题。
+
+## 附带工具：`grok-skills-prune`
+
+与供应商无关——放在这个仓库里，是因为它解决了 grok 会话崩掉的*另一种*方式。
+
+Grok 会从 `~/.grok*/skills`、`~/.agents/skills`、`~/.claude/skills` 和插件目录（Claude Code
+兼容层，没有开关可关）收集技能，把**全部技能**列进一条 `<system-reminder>`，并且**每次调用模型
+都重新注入这份清单**——每一份副本都留在会话记录里。
+
+在一台技能库很大的机器上实测：
+
+```
+460 个技能 = 145 KB = 每次模型调用约 37,000 token
+单个会话里 72 份副本 = 10.4 MB = 会话记录的 98%
+三个会话超过 300 万 token，无法挽回
+```
+
+自动压缩救不了：压缩请求本身要携带同一份历史，同样被拒。而第三方供应商是在 SSE 流**内部**
+报告超出上下文的错误，没有 HTTP 状态码，grok 就当成可重试，把同一份超大请求原样重发 15 次——
+约九分钟像卡死，然后整轮失败。
+
+```sh
+grok-skills-prune            # 查看会保留/隐藏哪些，不写入
+grok-skills-prune --apply    # 把 [skills] ignore 写进每个 grok home
+```
+
+它保留 grok **真正打开过**的技能（统计会话记录里对 `<skill>/SKILL.md` 的读取——grok 没有
+`skill` 工具，读文件*就是*它加载技能的方式），隐藏其余。不移动也不修改任何技能文件，只写
+`[skills] ignore`，你的技能库仍是唯一事实来源。
+
+**可选的使用记录表。** 如果 grok 刚接入你的工作流，它自己的历史会偏窄。可以让工具去读一张
+已经跨工具统计技能使用情况的表：
+
+```json
+// ~/.config/grok-connect/registry.json
+{"base_token": "…", "table_id": "tbl…", "keep_status": "经常使用",
+ "name_field": "Skill", "status_field": "状态"}
+```
+
+需要 `lark-cli`。没有配置文件、没装 CLI，或 Base 不可达时，工具会安静地退回到只用 grok 历史。
+新增技能后重新运行即可。
 
 ## 许可证
 

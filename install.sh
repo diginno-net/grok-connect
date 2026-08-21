@@ -11,7 +11,8 @@ mkdir -p "$BIN_DIR"
 
 install -m 755 "$here/bin/grok-cred"    "$BIN_DIR/grok-cred"
 install -m 755 "$here/bin/grok-connect" "$BIN_DIR/grok-connect"
-echo "installed: $BIN_DIR/{grok-cred,grok-connect}"
+install -m 755 "$here/bin/grok-skills-prune" "$BIN_DIR/grok-skills-prune"
+echo "installed: $BIN_DIR/{grok-cred,grok-connect,grok-skills-prune}"
 
 if [[ $WITH_CHATGPT == 1 ]]; then
   install -m 755 "$here/bin/chatgpt-responses-shim" "$BIN_DIR/chatgpt-responses-shim"
