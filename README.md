@@ -153,6 +153,10 @@ That split matters: 402 and 429 are account problems, 404 is your mistake.
 - **A probe without a real `User-Agent` gets 403.** The WAF in front of `opencode.ai` rejects
   `Python-urllib`, which reads as "key not entitled" when the key is fine. `grok-connect` sends
   a UA; remember it if you roll your own check.
+- **OpenCode Go needs `x-opencode-session`.** Starting 2026-09-06, requests to `opencode.ai`
+  without this header may error. `add`/`test` send one ID per run on probes, and write a stable
+  ID into the provider's `extra_headers` so grok's own calls carry it too. Already attached?
+  `grok-connect test opencode-go` fills it in.
 - **Anthropic-protocol providers are not supported yet.** MiniMax's coding plan and friends
   authenticate with `x-api-key`, and `grok-cred` only mints `Authorization: Bearer`.
 - **Providers with their own SDK can't be attached** (Google, Anthropic direct, xAI): models.dev

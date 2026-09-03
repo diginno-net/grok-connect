@@ -13,7 +13,8 @@ the three config blocks grok needs.
 
 Keys are NOT copied into the config: every provider points at the `grok-cred` helper.
 """
-import json, os, re, sys
+import json, os, re, sys, uuid
+from urllib.parse import urlsplit
 
 REGISTRY_OPENCODE = os.path.expanduser("~/.cache/opencode/models.json")
 REGISTRY_CACHE = os.path.expanduser("~/.cache/grok-connect/models.json")
@@ -21,6 +22,11 @@ REGISTRY_URL = "https://models.dev/api.json"
 REGISTRY_TTL = 24 * 3600
 OC_AUTH = os.path.expanduser("~/.local/share/opencode/auth.json")
 CONFIG = os.path.join(os.environ.get("GROK_HOME", os.path.expanduser("~/.grok")), "config.toml")
+
+UA = "grok-connect/1.0"
+# OpenCode Go (and Zen) want x-opencode-session so they can pin a conversation
+# to one upstream for prompt-cache routing. Missing it may error from 2026-09-06.
+OPENCODE_PIDS = {"opencode", "opencode-go"}
 
 # Providers that need a bridge rather than a direct attach.
 SPECIAL = {
@@ -52,7 +58,7 @@ def registry():
         import urllib.request
         try:
             os.makedirs(os.path.dirname(REGISTRY_CACHE), exist_ok=True)
-            req = urllib.request.Request(REGISTRY_URL, headers={"User-Agent": "grok-connect/1.0"})
+            req = urllib.request.Request(REGISTRY_URL, headers={"User-Agent": UA})
             with urllib.request.urlopen(req, timeout=30) as r:
                 data = r.read()
             json.loads(data)
@@ -84,6 +90,71 @@ def backend_of(entry):
 def key_of(name):
     """TOML section name: a dot inside a model id would split the table."""
     return re.sub(r"[^A-Za-z0-9_-]", "_", name)
+
+
+def opencode_host(url):
+    host = (urlsplit(url or "").hostname or "").lower()
+    return host == "opencode.ai" or host.endswith(".opencode.ai")
+
+
+def needs_opencode_session(pid=None, url=None):
+    """True for OpenCode Go/Zen: by provider id or by opencode.ai host."""
+    if pid and key_of(pid) in {key_of(p) for p in OPENCODE_PIDS}:
+        return True
+    return bool(url) and opencode_host(url)
+
+
+def opencode_headers(url, session_id=None):
+    """Headers OpenCode Go requires on traffic to opencode.ai. Empty otherwise."""
+    if not needs_opencode_session(url=url):
+        return {}
+    return {
+        "x-opencode-session": session_id or str(uuid.uuid4()),
+        "x-opencode-client": "grok-connect",
+    }
+
+
+def opencode_extra_headers_line(session_id):
+    return (
+        f'extra_headers = {{ "x-opencode-session" = "{session_id}", '
+        '"x-opencode-client" = "grok-connect" }'
+    )
+
+
+def ensure_opencode_extra_headers(text, pid, session_id):
+    """Insert x-opencode-session into [model_providers.{pid}] when missing.
+
+    Returns (new_text, changed). Leaves the file alone when the header is
+    already present. Merges into an existing extra_headers inline table.
+    """
+    key = key_of(pid)
+    m = re.search(
+        rf"^\[model_providers\.{re.escape(key)}\]\n(.*?)(?=\n\[|\Z)",
+        text, re.M | re.S,
+    )
+    if not m:
+        return text, False
+    body = m.group(1)
+    if re.search(r'(?i)x-opencode-session', body):
+        return text, False
+    em = re.search(r"extra_headers\s*=\s*\{([^}]*)\}", body)
+    if em:
+        inner = em.group(1).rstrip()
+        if inner and not inner.rstrip().endswith(","):
+            inner = inner.rstrip() + ", "
+        inner += (
+            f'"x-opencode-session" = "{session_id}", '
+            '"x-opencode-client" = "grok-connect" '
+        )
+        new_body = body[:em.start(1)] + inner + body[em.end(1):]
+    else:
+        new_body = body.rstrip("\n") + "\n" + opencode_extra_headers_line(session_id) + "\n"
+    return text[:m.start(1)] + new_body + text[m.end(1):], True
+
+
+def session_id_from_block(blk):
+    m = re.search(r'(?i)x-opencode-session"\s*=\s*"([^"]+)"', blk or "")
+    return m.group(1) if m else None
 
 
 def table_names(text):
@@ -206,7 +277,6 @@ def cmd_add(pid, wanted):
     # models.dev already records the full base (e.g. Z.ai: /api/coding/paas/v4).
     # Only append /v1 to a bare host - appending blindly yields a 404.
     if base:
-        from urllib.parse import urlsplit
         if urlsplit(base).path.strip("/") == "":
             base = base.rstrip("/") + "/v1"
 
@@ -232,6 +302,7 @@ def cmd_add(pid, wanted):
         f'api_backend = "{backend}"',
         f'auth_provider = "{key_of(pid)}"',
     ]
+    oc_session = str(uuid.uuid4()) if needs_opencode_session(pid, base) else None
     if pid == "chatgpt":
         import shutil, subprocess
         if not shutil.which("chatgpt-responses-shim"):
@@ -243,6 +314,8 @@ def cmd_add(pid, wanted):
             f'extra_headers = {{ "chatgpt-account-id" = "{acc}", '
             '"OpenAI-Beta" = "responses=experimental", "originator" = "codex_cli_rs" }'
         )
+    elif oc_session:
+        lines.append(opencode_extra_headers_line(oc_session))
     for mid in picked:
         lines += [
             "",
@@ -265,7 +338,7 @@ def cmd_add(pid, wanted):
     print(f"attached '{pid}' to {CONFIG}")
     print("model:", ", ".join(key_of(m) for m in picked))
     print("Calling the endpoint:")
-    bad = cmd_test(pid)
+    bad = cmd_test(pid, session_id=oc_session)
     if bad:
         print(f"\n{bad} model(s) did not answer - see the explanation column above.")
         print(f"If the base_url is wrong: `grok-connect remove {pid}`, fix it, attach again.")
@@ -289,7 +362,7 @@ def sections(cfg):
         yield name, "\n".join(body)
 
 
-def probe(base, backend, model, token):
+def probe(base, backend, model, token, session_id=None):
     """One real call to the endpoint. `grok models` listing something proves nothing -
     a wrong URL still shows up there and only fails at chat time with a 404."""
     import urllib.request, urllib.error
@@ -301,16 +374,24 @@ def probe(base, backend, model, token):
         url = base.rstrip("/") + "/chat/completions"
         body = {"model": model, "messages": [{"role": "user", "content": "hi"}],
                 "max_tokens": 1, "stream": False}
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {token}",
+        # Without a real UA the WAF in front of opencode.ai returns 403, which reads as a bad key.
+        "User-Agent": UA,
+    }
+    headers.update(opencode_headers(url, session_id))
     req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}",
-                 # Without a real UA the WAF in front of opencode.ai returns 403, which reads as a bad key.
-                 "User-Agent": "grok-connect/1.0"})
+        headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=45) as r:
             return r.status, ""
     except urllib.error.HTTPError as e:
-        detail = e.read()[:200].decode("utf-8", "replace").replace("\n", " ")
-        return e.code, detail
+        try:
+            detail = e.read()[:200].decode("utf-8", "replace").replace("\n", " ")
+            return e.code, detail
+        finally:
+            e.close()
     except Exception as e:
         return 0, str(e)[:150]
 
@@ -325,7 +406,7 @@ HINT = {
 }
 
 
-def cmd_test(pid):
+def cmd_test(pid, session_id=None):
     cfg = read_config()
     secs = dict(sections(cfg))
     blk = secs.get(f"model_providers.{key_of(pid)}")
@@ -334,6 +415,18 @@ def cmd_test(pid):
     base = re.search(r'base_url = "([^"]+)"', blk).group(1)
     bm = re.search(r'api_backend = "([^"]+)"', blk)
     backend = bm.group(1) if bm else "chat_completions"
+
+    if needs_opencode_session(pid, base):
+        session_id = session_id or session_id_from_block(blk) or str(uuid.uuid4())
+        new, changed = ensure_opencode_extra_headers(cfg, pid, session_id)
+        if changed:
+            write_config(new, f"ghi x-opencode-session cho '{pid}'")
+            print(f"grok-connect: wrote x-opencode-session into "
+                  f"[model_providers.{key_of(pid)}] so grok sends it too",
+                  file=sys.stderr)
+            cfg = new
+            secs = dict(sections(cfg))
+            blk = secs.get(f"model_providers.{key_of(pid)}")
 
     import subprocess
     cred_id = "chatgpt" if pid == "chatgpt" else pid
@@ -356,7 +449,7 @@ def cmd_test(pid):
 
     bad = 0
     for key, mid in mine:
-        code, detail = probe(base, backend, mid, tok)
+        code, detail = probe(base, backend, mid, tok, session_id=session_id)
         hint = HINT.get(code, detail or "unknown")
         mark = "ok  " if code == 200 else ("hm  " if code in (402, 429) else "LỖI")
         if code != 200:
