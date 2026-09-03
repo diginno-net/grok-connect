@@ -146,6 +146,10 @@ Token 不落盘。挂了 auth provider 的模型是**严格 BYOK：你的 xAI �
 - **探测请求不带真实 `User-Agent` 会拿到 403。** `opencode.ai` 前面的 WAF 会拒绝
   `Python-urllib`，读出来像是"密钥无权限"，其实密钥好好的。`grok-connect` 会带 UA——自己写检查
   脚本时记住这点。
+- **OpenCode Go 需要 `x-opencode-session`。** 从 2026-09-06 起，发往 `opencode.ai` 的请求若缺少
+  该 header 可能会失败。`add`/`test` 会在探测请求上带上当次 ID，并把一个稳定 ID 写入供应商的
+  `extra_headers`，这样 grok 自己的调用也会带上。已经挂上了？运行
+  `grok-connect test opencode-go` 即可补上。
 - **走 Anthropic 协议的供应商暂不支持。** MiniMax 的 coding plan 之类用 `x-api-key` 认证，
   而 `grok-cred` 只签发 `Authorization: Bearer`。
 - **有自家 SDK 的供应商挂不上**（Google、Anthropic 直连、xAI）：models.dev 没有为它们记录 REST

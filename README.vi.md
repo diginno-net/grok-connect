@@ -149,6 +149,10 @@ Tách như vậy mới rõ: 402 và 429 là chuyện tài khoản, còn 404 là 
 - **Probe thiếu `User-Agent` thật thì ăn 403.** WAF trước `opencode.ai` chặn `Python-urllib`,
   đọc lên thành "khoá không có quyền" trong khi khoá không sao cả. `grok-connect` có gửi UA — tự
   viết script kiểm thì nhớ chuyện này.
+- **OpenCode Go cần header `x-opencode-session`.** Từ 2026-09-06, request tới `opencode.ai` thiếu
+  header này có thể lỗi. `add`/`test` gửi một ID cho mỗi lần chạy khi probe, và ghi một ID ổn
+  định vào `extra_headers` của provider để grok cũng gửi khi chat. Đã cắm rồi?
+  `grok-connect test opencode-go` sẽ bổ sung.
 - **Provider dùng protocol Anthropic chưa hỗ trợ.** Gói coding của MiniMax và tương tự xác thực
   bằng `x-api-key`, còn `grok-cred` chỉ mint được `Authorization: Bearer`.
 - **Provider có SDK riêng thì không cắm được** (Google, Anthropic trực tiếp, xAI): models.dev
