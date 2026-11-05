@@ -27,7 +27,7 @@ SPECIAL = {
     "chatgpt": {
         "base_url": "http://127.0.0.1:8788/v1",
         "api_backend": "responses",
-        "models": ["gpt-5.6-sol"],
+        "models": ["gpt-6.1-sol", "gpt-5.6-sol"],
         "context": 1050000,
         "note": "via chatgpt-responses-shim; grok-cred starts the shim on demand",
     }

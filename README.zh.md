@@ -1,7 +1,12 @@
-# grok-connect
+# grok-connect — 在 Grok Build（xAI `grok` CLI）中使用任意 LLM 供应商
 
-把第三方模型供应商挂到 **Grok Build**（xAI 的 `grok` CLI）上——GLM/智谱、DeepSeek、opencode Zen、
-阿里云，以及任何 OpenAI 兼容端点——不用手改 TOML，也不用把任何一个 API key 抄进配置文件。
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+![Python 3](https://img.shields.io/badge/python-3-blue.svg)
+![Providers: 100+ via models.dev](https://img.shields.io/badge/providers-100%2B%20via%20models.dev-orange.svg)
+
+**grok-connect** 是 **Grok Build**（xAI 的 `grok` 编码智能体）的 `/connect` 命令与 CLI。
+它能挂载第三方 LLM 供应商——GLM/智谱、DeepSeek、opencode Zen、阿里云、OpenRouter、ChatGPT，
+以及任何 OpenAI / Anthropic 兼容端点——不用手改 TOML，也不用把任何一个 API key 抄进配置文件。
 
 [English](README.md) · [Tiếng Việt](README.vi.md) · **中文**
 

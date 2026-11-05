@@ -1,8 +1,13 @@
-# grok-connect
+# grok-connect — use any LLM provider in Grok Build (xAI `grok` CLI)
 
-Attach third-party model providers to **Grok Build** (xAI's `grok` CLI) — GLM/Z.ai, DeepSeek,
-opencode Zen, Alibaba, any OpenAI-compatible endpoint — without hand-editing TOML, and without
-copying a single API key into a config file.
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+![Python 3](https://img.shields.io/badge/python-3-blue.svg)
+![Providers: 100+ via models.dev](https://img.shields.io/badge/providers-100%2B%20via%20models.dev-orange.svg)
+
+**grok-connect** is a `/connect` command and CLI for **Grok Build** (xAI's `grok` coding agent).
+It attaches third-party LLM providers — GLM/Z.ai, DeepSeek, opencode Zen, Alibaba, OpenRouter,
+ChatGPT, any OpenAI-compatible or Anthropic-compatible endpoint — without hand-editing TOML, and
+without copying a single API key into a config file.
 
 **English** · [Tiếng Việt](README.vi.md) · [中文](README.zh.md)
 

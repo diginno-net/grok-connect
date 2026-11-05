@@ -1,7 +1,12 @@
-# grok-connect
+# grok-connect — dùng bất kỳ LLM provider nào trong Grok Build (CLI `grok` của xAI)
 
-Cắm model provider bên thứ ba vào **Grok Build** (CLI `grok` của xAI) — GLM/Z.ai, DeepSeek,
-opencode Zen, Alibaba, hay bất kỳ endpoint OpenAI-compatible nào — mà không phải sửa TOML tay,
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+![Python 3](https://img.shields.io/badge/python-3-blue.svg)
+![Providers: 100+ via models.dev](https://img.shields.io/badge/providers-100%2B%20via%20models.dev-orange.svg)
+
+**grok-connect** là lệnh `/connect` và CLI cho **Grok Build** (coding agent `grok` của xAI).
+Nó cắm LLM provider bên thứ ba — GLM/Z.ai, DeepSeek, opencode Zen, Alibaba, OpenRouter, ChatGPT,
+hay bất kỳ endpoint OpenAI-compatible / Anthropic-compatible nào — mà không phải sửa TOML tay,
 và không chép một dòng API key nào vào file config.
 
 [English](README.md) · **Tiếng Việt** · [中文](README.zh.md)
